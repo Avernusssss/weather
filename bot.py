@@ -63,27 +63,45 @@ async def get_all_favorites() -> list:
 
 def get_weather(city):
     try:
-        url = f"http://api.openweathermap.org/data/2.5/weather?q={city},RU&appid={WEATHER_API_KEY}&units=metric&lang=ru"
-        response = requests.get(url)
-        data = response.json()
+        # Текущая погода
+        current_url = f"http://api.openweathermap.org/data/2.5/weather?q={city},RU&appid={WEATHER_API_KEY}&units=metric&lang=ru"
+        # Прогноз
+        forecast_url = f"http://api.openweathermap.org/data/2.5/forecast?q={city},RU&appid={WEATHER_API_KEY}&units=metric&lang=ru"
         
-        if response.status_code == 200:
-            weather_desc = data['weather'][0]['description']
-            temp = data['main']['temp']
-            feels_like = data['main']['feels_like']
-            humidity = data['main']['humidity']
-            wind_speed = data['wind']['speed']
+        current_response = requests.get(current_url)
+        forecast_response = requests.get(forecast_url)
+        
+        if current_response.status_code == 200 and forecast_response.status_code == 200:
+            current_data = current_response.json()
+            forecast_data = forecast_response.json()
             
-            return (f"Погода в городе {city}:\n"
-                   f"🌡 Температура: {temp}°C\n"
-                   f"🌡 Ощущается как: {feels_like}°C\n"
-                   f"💧 Влажность: {humidity}%\n"
-                   f"💨 Скорость ветра: {wind_speed} м/с\n"
-                   f"☁️ {weather_desc.capitalize()}")
+            # Текущая погода
+            current_weather = (
+                f"🌡 Сейчас в городе {city}:\n"
+                f"Температура: {current_data['main']['temp']}°C\n"
+                f"Ощущается как: {current_data['main']['feels_like']}°C\n"
+                f"💧 Влажность: {current_data['main']['humidity']}%\n"
+                f"💨 Ветер: {current_data['wind']['speed']} м/с\n"
+                f"☁️ {current_data['weather'][0]['description'].capitalize()}\n\n"
+            )
+            
+            # Прогноз на следующие 24 часа с интервалом 4 часа
+            forecast_weather = "📅 Прогноз на ближайшие 24 часа:\n\n"
+            for forecast in forecast_data['list'][:6]:  # Берем первые 6 точек (24 часа)
+                date = datetime.fromtimestamp(forecast['dt'])
+                if date.hour % 4 == 0:  # Только каждые 4 часа
+                    forecast_weather += (
+                        f"🕐 {date.strftime('%H:%M')}:\n"
+                        f"🌡 {forecast['main']['temp']}°C\n"
+                        f"💨 {forecast['wind']['speed']} м/с\n"
+                        f"☁️ {forecast['weather'][0]['description']}\n\n"
+                    )
+            
+            return current_weather + forecast_weather
         else:
             return "Город не найден, далпаеп"
     except Exception as e:
-        return "Ошибка при получении погоды"
+        return f"Ошибка при получении погоды: {str(e)}"
 
 @router.message(Command("start"))
 async def start_command(message: Message):
