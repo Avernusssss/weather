@@ -1,13 +1,15 @@
-from aiogram import Bot, Dispatcher, types, executor
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup
-from datetime import datetime
 import asyncio
 import json
-import requests
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import os
+from datetime import datetime
+
+import requests
+from aiogram import Bot, Dispatcher, F, Router
+from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
 # Загрузка переменных окружения
@@ -20,9 +22,12 @@ WEATHER_API_KEY = os.getenv('WEATHER_API_KEY')
 if not BOT_TOKEN or not WEATHER_API_KEY:
     raise ValueError("Пиши .env")
 
+# Инициализация бота и диспетчера
 bot = Bot(token=BOT_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(bot, storage=storage)
+dp = Dispatcher()
+router = Router()
+dp.include_router(router)
+
 scheduler = AsyncIOScheduler()
 
 class UserStates(StatesGroup):
@@ -67,29 +72,30 @@ def get_weather(city):
     except Exception as e:
         return "Ошибка при получении погоды"
 
-@dp.message_handler(commands=['start'])
-async def start_command(message: types.Message):
-    keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    buttons = ['Узнать погоду', 'Установить избранный город']
-    keyboard.add(*buttons)
-    
-    await message.answer(
-        "Выбери действие:",
-        reply_markup=keyboard
+@router.message(Command("start"))
+async def start_command(message: Message):
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[[
+            KeyboardButton(text="Узнать погоду"),
+            KeyboardButton(text="Установить избранный город")
+        ]],
+        resize_keyboard=True
     )
+    
+    await message.answer("Выбери действие:", reply_markup=keyboard)
 
-@dp.message_handler(text='Узнать погоду')
-async def weather_command(message: types.Message):
-    await UserStates.waiting_for_city.set()
+@router.message(F.text == "Узнать погоду")
+async def weather_command(message: Message, state: FSMContext):
+    await state.set_state(UserStates.waiting_for_city)
     await message.reply("Введи название города:")
 
-@dp.message_handler(text='Установить избранный город')
-async def set_favorite_city(message: types.Message):
-    await UserStates.waiting_for_city.set()
+@router.message(F.text == "Установить избранный город")
+async def set_favorite_city(message: Message, state: FSMContext):
+    await state.set_state(UserStates.waiting_for_city)
     await message.reply("Введи название города для ежедневных уведомлений:")
 
-@dp.message_handler(state=UserStates.waiting_for_city)
-async def process_city(message: types.Message, state: FSMContext):
+@router.message(UserStates.waiting_for_city)
+async def process_city(message: Message, state: FSMContext):
     city = message.text
     weather = get_weather(city)
     
@@ -101,7 +107,7 @@ async def process_city(message: types.Message, state: FSMContext):
     else:
         await message.answer(weather)
     
-    await state.finish()
+    await state.clear()
 
 async def send_daily_weather():
     for user_id, city in favorite_cities.items():
@@ -114,7 +120,10 @@ async def send_daily_weather():
 def schedule_jobs():
     scheduler.add_job(send_daily_weather, 'cron', hour=8, minute=0)
 
-if __name__ == '__main__':
+async def main():
     scheduler.start()
     schedule_jobs()
-    executor.start_polling(dp, skip_updates=True) 
+    await dp.start_polling(bot)
+
+if __name__ == '__main__':
+    asyncio.run(main()) 
