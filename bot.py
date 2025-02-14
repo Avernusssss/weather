@@ -49,7 +49,7 @@ async def get_favorite_city(user_id: str) -> str | None:
             result = await cursor.fetchone()
             return result[0] if result else None
 
-async def set_favorite_city(user_id: str, city: str):
+async def save_favorite_city(user_id: str, city: str):
     async with aiosqlite.connect('weather_bot.db') as db:
         await db.execute('''
             INSERT OR REPLACE INTO favorite_cities (user_id, city) VALUES (?, ?)
@@ -114,7 +114,7 @@ async def process_city(message: Message, state: FSMContext):
     
     if "Ошибка" not in weather and "не найден" not in weather:
         user_id = str(message.from_user.id)
-        await set_favorite_city(user_id, city)
+        await save_favorite_city(user_id, city)
         await message.answer(f"Город {city} установлен как избранный!\n\n{weather}")
     else:
         await message.answer(weather)
